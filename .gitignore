@@ -1,0 +1,10 @@
+*.py
+*.json
+*.bak
+*.pickle
+*.old
+*.old2
+Untitled*.*
+members.txt
+credentials*.*
+
