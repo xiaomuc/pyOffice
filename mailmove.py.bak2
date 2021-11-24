@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import win32com.client
+import json
+import re
+
+# Outlook関係のオブジェクト初期化
+app = win32com.client.Dispatch("Outlook.Application")
+root = app.Session.DefaultStore.GetRootFolder()
+ns = app.GetNamespace("MAPI")
+inbox = ns.GetDefaultFolder(6)
+messages = inbox.Items
+# print("inbox:", inbox.name)
+
+
+# In[2]:
+
+
+# Outlookのフォルダ検索
+def findfolder(root, name):
+    for folder in root.Folders:
+        if name in folder.name:
+            print(folder.folderpath)
+            return folder
+        ret = findfolder(folder, name)
+        if ret is not None:
+            return ret
+    return None
+
+
+# 条件適合判定
+def isit(message, subjects, addresses=[]):
+    for subject in subjects:
+        # if subject in message.subject:
+        #    return True
+        if re.search(subject, message.subject) != None:
+            return True
+    for address in addresses:
+        if address in message.sendername:
+            return True
+        if address in message.senderemailaddress:
+            return True
+        for recip in message.recipients:
+            if address in recip.name or address in recip.address:
+                return True
+    return False
+
+
+# アーカイブ先フォルダ検索
+def whichFolder(message, dic):
+    if message.messageClass == "IPM.Note":
+        for key in dic:
+            if isit(message, dic[key]["subject"], dic[key]["address"]):
+                return key
+    return None
+
+
+# JSONファイルから移動条件をロードする
+def load_json(filename="mail.json"):
+    with open("mail.json", "r", encoding="utf-8") as f:
+        dic = json.load(f)
+        # print(type(dic))
+        folders = {}
+        for k in dic:
+            # print(k,dic[k]["unread"])
+            if not k.startswith("$"):
+                folders[k] = findfolder(root, dic[k]["folder"])
+    return dic, folders
+
+
+# In[10]:
+
+
+# メールのアーカイブ処理メイン部
+def move_mail(
+    dic, folders, target_folder=inbox, view_none=True, view_move=True, view_delete=True
+):
+    i = 1
+    counter_move = 0
+    counter_remain = 0
+    counter_delete = 0
+    counter_unread = 0
+    counter_not_msg = 0
+    list_move = list()
+    for message in target_folder.Items:
+        key = whichFolder(message, dic)
+        # print(key)
+        if key == "del":
+            counter_delete += 1
+            if view_none:
+                print(counter_delete, "delete", message.subject)
+            list_move.append((message, None))
+        elif (
+            key is None
+            or folders[key] is None
+            or folders[key].folderpath == target_folder.folderpath
+        ):
+            if message.messageClass != "IPM.Note":
+                counter_not_msg += 1
+                counter_remain += 1
+                if view_none:
+                    print(counter_remain, "appt", message.subject)
+            elif message.unread:
+                counter_remain += 1
+                counter_unread += 1
+                if view_none:
+                    print(counter_remain, "unread", message.subject)
+            else:
+                counter_remain += 1
+                if view_none:
+                    print(counter_remain, "none", message.subject)
+        elif dic[key]["unread"] or not message.unread:
+            counter_move += 1
+            if view_move:
+                print(folders[key].name, message.subject)
+            list_move.append((message, folders[key]))
+        else:
+            counter_remain += 1
+            counter_unread += 1
+            if view_none:
+                print("unread", message.subject)
+        i += 1
+    for item in list_move:
+        message = item[0]
+        dest = item[1]
+        if dest is None:
+            if view_delete:
+                print("delete", message.subject)
+            message.delete()
+        else:
+            print(dest.name, message.subject)
+            message.unread = False
+            message.move(dest)
+    print("moved:", counter_move, "delete:", counter_delete, "remain:", counter_remain)
+    print("unread!",counter_unread, "appoint:", counter_not_msg)
+
+
+# アーカイブ処理を全アーカイブ対象フォルダに対して実行
+def do_all_folder(dic, folders):
+    for k in dic:
+        print(k)
+        if k != "del":
+            move_mail(dic, folders, target_folder=folders[k], view_none=False)
+    print("do all done.")
+
+
+# In[12]:
+
+
+# 処理実行部
+
+dic, folders = load_json()
+
+# 受信トレイ(inbox)に対して処理を行う場合
+move_mail(dic, folders)
+
+# 特定のフォルダに対して処理を行う場合
+# tf = findfolder(root, "東海")
+# move_mail(dic, folders, target_folder=tf)
+
+# 全てのフォルダに対して再処理を行う場合
+# do_all_folder(dic,folders)
+
+
+# In[ ]:
+
+
+
+
